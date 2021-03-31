@@ -18,6 +18,9 @@ rust-releases = "0.8"
 console = "0.14.1"
 indicatif = "0.15.0"
 
+[dev-dependencies]
+parameterized = "0.3.1"
+
 [[bin]]
 name = "cargo-msrv"
 path = "src/bin/cargo-msrv.rs"

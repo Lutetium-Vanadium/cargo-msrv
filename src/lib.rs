@@ -83,21 +83,21 @@ pub fn determine_msrv(
     let ui = Printer::new(releases.len() as u64);
     ui.welcome(config.target(), &cmd);
 
-    if config.include_all_patch_releases() {
-        test_against_releases(
-            index.all_releases_iterator(),
-            &mut compatibility,
-            config,
-            &ui,
-        )?;
+    // The collecting step is necessary, because Rust can't deal with equal opaque types
+    let releases = if config.include_all_patch_releases() {
+        index.all_releases_iterator().collect::<Vec<_>>()
     } else {
-        test_against_releases(
-            index.stable_releases_iterator(),
-            &mut compatibility,
-            config,
-            &ui,
-        )?;
-    }
+        index.stable_releases_iterator().collect::<Vec<_>>()
+    };
+
+    let included_releases = releases.iter().filter(|release| include_version(release.version(), config.minimum_version(), config.maximum_version()));
+
+    test_against_releases_linearly(
+        included_releases,
+        &mut compatibility,
+        config,
+        &ui,
+    )?;
 
     match &compatibility {
         MinimalCompatibility::CapableToolchain {
@@ -112,33 +112,16 @@ pub fn determine_msrv(
     Ok(compatibility)
 }
 
-fn test_against_releases<'release, I>(
+fn test_against_releases_linearly<'release, I>(
     releases: I,
     compatibility: &mut MinimalCompatibility,
     config: &CmdMatches,
     ui: &Printer,
 ) -> TResult<()>
 where
-    I: Iterator<Item = &'release Release>,
+    I: Iterator<Item = &'release &'release Release>
 {
     for release in releases {
-        // releases are ordered high to low; if we have reached a version which is below the minimum,
-        // we can stop.
-        if let Some(min) = config.minimum_version() {
-            if release.version() < min {
-                break;
-            }
-        }
-
-        // releases are ordered high to low; if we find a version which is higher than the maximum,
-        // we can skip over it.
-        if let Some(max) = config.maximum_version() {
-            if release.version() > max {
-                ui.skip_version(release.version());
-                continue;
-            }
-        }
-
         ui.show_progress("Checking", release.version());
         let status = check_toolchain(release.version(), config, ui)?;
 
@@ -150,4 +133,73 @@ where
     }
 
     Ok(())
+}
+
+fn include_version(current: &semver::Version, min_version: Option<&semver::Version>, max_version: Option<&semver::Version>) -> bool {
+    match (min_version, max_version) {
+        (Some(min), Some(max)) => current >= min && current <= max,
+        (Some(min), None) => current >= min,
+        (None, Some(max)) => current <= max,
+        (None, None) => true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rust_releases::semver::Version;
+    use parameterized::{ide, parameterized};
+
+    ide!();
+
+    #[parameterized(current = {
+        50, // -inf <= x <= inf
+        50, // 1.50.0 <= x <= inf
+        50, // -inf <= x <= 1.50.0
+        50, // 1.50.0 <= x <= 1.50.0
+        50, // 1.49.0 <= x <= 1.50.0
+    }, min = {
+        None,
+        Some(50),
+        None,
+        Some(50),
+        Some(49),
+    }, max = {
+        None,
+        None,
+        Some(50),
+        Some(50),
+        Some(50),
+    })]
+    fn test_included_versions(current: u64, min: Option<u64>, max: Option<u64>) {
+        let current = Version::new(1, current, 0);
+        let min_version = min.map(|m| Version::new(1, m, 0));
+        let max_version = max.map(|m| Version::new(1, m, 0));
+
+        assert!(include_version(&current, min_version.as_ref(), max_version.as_ref()));
+    }
+
+    #[parameterized(current = {
+        50, // -inf <= x <= 1.49.0 : false
+        50, // 1.51 <= x <= inf    : false
+        50, // 1.51 <= x <= 1.52.0 : false
+        50, // 1.48 <= x <= 1.49.0 : false
+    }, min = {
+        None,
+        Some(51),
+        Some(51),
+        Some(48),
+    }, max = {
+        Some(49),
+        None,
+        Some(52),
+        Some(49),
+    })]
+    fn test_excluded_versions(current: u64, min: Option<u64>, max: Option<u64>) {
+        let current = Version::new(1, current, 0);
+        let min_version = min.map(|m| Version::new(1, m, 0));
+        let max_version = max.map(|m| Version::new(1, m, 0));
+
+        assert!(!include_version(&current, min_version.as_ref(), max_version.as_ref()));
+    }
 }
