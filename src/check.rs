@@ -22,6 +22,15 @@ pub enum CheckStatus {
     },
 }
 
+impl CheckStatus {
+    pub fn is_failure(&self) -> bool {
+        match self {
+            Self::Failure { .. } => true,
+            _ => false,
+        }
+    }
+}
+
 pub fn check_toolchain<'a>(
     version: &'a semver::Version,
     config: &'a CmdMatches,

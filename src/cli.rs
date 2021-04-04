@@ -11,6 +11,7 @@ pub mod id {
     pub const ARG_INCLUDE_ALL_PATCH_RELEASES: &str = "include_all_patch";
     pub const ARG_MIN: &str = "min";
     pub const ARG_MAX: &str = "max";
+    pub const ARG_BISECT: &str = "bisect";
 }
 
 pub fn cli() -> App<'static, 'static> {
@@ -81,6 +82,11 @@ so: `rustup run <toolchain> <COMMAND...>`. You'll only need to provide the <COMM
                     .help("Latest version to take into account")
                     .takes_value(true)
                 )
+                .arg(Arg::with_name(id::ARG_BISECT)
+                    .long("bisect")
+                    .help("Use a binary search to find the MSRV instead of a linear search")
+                    .takes_value(false)
+                )
                 .arg(
                     Arg::with_name(id::ARG_CUSTOM_CHECK)
                         .value_name("COMMAND")
@@ -127,6 +133,8 @@ pub fn cmd_matches<'a>(matches: &'a ArgMatches<'a>) -> TResult<CmdMatches<'a>> {
     if let Some(max) = seek.value_of(id::ARG_MAX) {
         builder = builder.maximum_version(Some(rust_releases::semver::Version::parse(max)?))
     }
+
+    builder = builder.bisect(seek.is_present(id::ARG_BISECT));
 
     builder =
         builder.include_all_patch_releases(seek.is_present(id::ARG_INCLUDE_ALL_PATCH_RELEASES));

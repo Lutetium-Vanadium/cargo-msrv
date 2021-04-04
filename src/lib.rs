@@ -90,14 +90,23 @@ pub fn determine_msrv(
         index.stable_releases_iterator().collect::<Vec<_>>()
     };
 
-    let included_releases = releases.iter().filter(|release| include_version(release.version(), config.minimum_version(), config.maximum_version()));
+    let included_releases = releases.iter().filter(|release| include_version(release.version(), config.minimum_version(), config.maximum_version())).map(|r| *r).collect::<Vec<_>>();
 
-    test_against_releases_linearly(
-        included_releases,
-        &mut compatibility,
-        config,
-        &ui,
-    )?;
+    if config.bisect() {
+        test_against_releases_bisect(
+            included_releases.as_ref(),
+            &mut compatibility,
+            config,
+            &ui,
+        )?;
+    } else {
+        test_against_releases_linearly(
+            included_releases.as_ref(),
+            &mut compatibility,
+            config,
+            &ui,
+        )?;
+    }
 
     match &compatibility {
         MinimalCompatibility::CapableToolchain {
@@ -112,15 +121,12 @@ pub fn determine_msrv(
     Ok(compatibility)
 }
 
-fn test_against_releases_linearly<'release, I>(
-    releases: I,
+fn test_against_releases_linearly<'release>(
+    releases: &[&'release Release],
     compatibility: &mut MinimalCompatibility,
     config: &CmdMatches,
     ui: &Printer,
-) -> TResult<()>
-where
-    I: Iterator<Item = &'release &'release Release>
-{
+) -> TResult<()> {
     for release in releases {
         ui.show_progress("Checking", release.version());
         let status = check_toolchain(release.version(), config, ui)?;
@@ -134,6 +140,17 @@ where
 
     Ok(())
 }
+
+fn test_against_releases_bisect<'release>(
+    _releases: &[&'release Release],
+    _compatibility: &mut MinimalCompatibility,
+    _config: &CmdMatches,
+    _ui: &Printer,
+) -> TResult<()> {
+    todo!()
+}
+
+
 
 fn include_version(current: &semver::Version, min_version: Option<&semver::Version>, max_version: Option<&semver::Version>) -> bool {
     match (min_version, max_version) {
